@@ -65,7 +65,12 @@ impl AnyConsoleDevice for ConsoleDevice {
             // FIXME: If the length of the recv_buffer exceeds that of the buf,
             // there will be some content that is not received.
             let mut writer = VmWriter::from(buf);
-            let mut reader = self.receive_buffer.reader().unwrap().limit(len as usize);
+            let mut reader = self
+                .receive_buffer
+                .reader()
+                .unwrap()
+                .limit(len as usize)
+                .inner();
             writer.write(&mut reader)
         };
 
@@ -93,7 +98,12 @@ impl AnyConsoleDevice for ConsoleDevice {
         let callbacks = self.callbacks.lock_irq_disabled();
 
         for callback in callbacks.iter() {
-            let reader = self.receive_buffer.reader().unwrap().limit(len as usize);
+            let reader = self
+                .receive_buffer
+                .reader()
+                .unwrap()
+                .limit(len as usize)
+                .inner();
             callback(reader);
         }
         receive_queue
