@@ -19,7 +19,7 @@ use bitflags::bitflags;
 use log::debug;
 use pod::Pod;
 
-use crate::transport::VirtioTransport;
+use crate::{dma_buf::DmaBuf, transport::VirtioTransport};
 
 #[derive(Debug)]
 pub enum QueueError {
@@ -176,18 +176,14 @@ impl VirtQueue {
         })
     }
 
-    /// Add buffers to the virtqueue, return a token. **This function will be removed in the future.**
+    /// Add dma buffers to the virtqueue, return a token.
     ///
     /// Ref: linux virtio_ring.c virtqueue_add
-    pub fn add_buf(&mut self, inputs: &[&[u8]], outputs: &[&mut [u8]]) -> Result<u16, QueueError> {
-        // FIXME: use `DmaSteam` for inputs and outputs. Now because the upper device driver lacks the
-        // ability to safely construct DmaStream from slice, slice is still used here.
-        // pub fn add(
-        //     &mut self,
-        //     inputs: &[&DmaStream],
-        //     outputs: &[&mut DmaStream],
-        // ) -> Result<u16, QueueError> {
-
+    pub fn add_dma_buf<T: DmaBuf>(
+        &mut self,
+        inputs: &[&T],
+        outputs: &[&T],
+    ) -> Result<u16, QueueError> {
         if inputs.is_empty() && outputs.is_empty() {
             return Err(QueueError::InvalidArgs);
         }
@@ -200,7 +196,7 @@ impl VirtQueue {
         let mut last = self.free_head;
         for input in inputs.iter() {
             let desc = &self.descs[self.free_head as usize];
-            set_buf_slice(&desc.borrow_vm().restrict::<TRights![Write, Dup]>(), input);
+            set_dma_buf(&desc.borrow_vm().restrict::<TRights![Write, Dup]>(), *input);
             field_ptr!(desc, Descriptor, flags)
                 .write(&DescFlags::NEXT)
                 .unwrap();
@@ -209,7 +205,10 @@ impl VirtQueue {
         }
         for output in outputs.iter() {
             let desc = &mut self.descs[self.free_head as usize];
-            set_buf_slice(&desc.borrow_vm().restrict::<TRights![Write, Dup]>(), output);
+            set_dma_buf(
+                &desc.borrow_vm().restrict::<TRights![Write, Dup]>(),
+                *output,
+            );
             field_ptr!(desc, Descriptor, flags)
                 .write(&(DescFlags::NEXT | DescFlags::WRITE))
                 .unwrap();
@@ -438,6 +437,17 @@ pub struct Descriptor {
 }
 
 type DescriptorPtr<'a> = SafePtr<Descriptor, &'a DmaCoherent, TRightSet<TRights![Dup, Write]>>;
+
+#[inline]
+fn set_dma_buf<T: DmaBuf>(desc_ptr: &DescriptorPtr, buf: &T) {
+    let daddr = buf.addr();
+    field_ptr!(desc_ptr, Descriptor, addr)
+        .write(&(daddr as u64))
+        .unwrap();
+    field_ptr!(desc_ptr, Descriptor, len)
+        .write(&(buf.len() as u32))
+        .unwrap();
+}
 
 #[inline]
 #[allow(clippy::type_complexity)]

@@ -115,6 +115,10 @@ impl<'a> DmaReader<'a> {
         }
     }
 
+    pub fn inner(self) -> VmReader<'a> {
+        self.inner
+    }
+
     pub const fn remain(&self) -> usize {
         self.inner.remain()
     }
@@ -165,6 +169,10 @@ impl<'a> DmaWriter<'a> {
             inner: vm_writer,
             start_daddr,
         }
+    }
+
+    pub fn inner(self) -> VmWriter<'a> {
+        self.inner
     }
 
     pub const fn avail(&self) -> usize {
