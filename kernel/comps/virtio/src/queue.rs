@@ -11,7 +11,7 @@ use core::{
 use aster_frame::{
     io_mem::IoMem,
     offset_of,
-    vm::{DmaCoherent, VmAllocOptions, VmReader, VmWriter},
+    vm::{DmaCoherent, DmaReader, DmaWriter, HasDaddr, VmAllocOptions},
 };
 use aster_rights::{Dup, TRightSet, TRights, Write};
 use aster_util::{field_ptr, safe_ptr::SafePtr};
@@ -247,13 +247,13 @@ impl VirtQueue {
         Ok(head)
     }
 
-    /// Add VmReader/VmWriter to the virtqueue, return a token.
+    /// Add DmaReader/DmaWriter to the virtqueue, return a token.
     ///
     /// Ref: linux virtio_ring.c virtqueue_add
-    pub fn add_vm(
+    pub fn add_dma(
         &mut self,
-        inputs: &[&VmReader],
-        outputs: &[&VmWriter],
+        inputs: &[DmaReader],
+        outputs: &[DmaWriter],
     ) -> Result<u16, QueueError> {
         if inputs.is_empty() && outputs.is_empty() {
             return Err(QueueError::InvalidArgs);
@@ -456,28 +456,20 @@ fn set_buf_slice(desc_ptr: &DescriptorPtr, buf: &[u8]) {
 
 #[inline]
 #[allow(clippy::type_complexity)]
-fn set_buf_reader(desc_ptr: &DescriptorPtr, reader: &VmReader) {
-    let va = reader.cursor() as usize;
-    let pa = aster_frame::vm::vaddr_to_paddr(va).unwrap();
-    field_ptr!(desc_ptr, Descriptor, addr)
-        .write(&(pa as u64))
-        .unwrap();
-    field_ptr!(desc_ptr, Descriptor, len)
-        .write(&(reader.remain() as u32))
-        .unwrap();
+fn set_buf_reader(desc_ptr: &DescriptorPtr, reader: &DmaReader) {
+    let da = reader.daddr() as u64;
+    let len = reader.remain() as u32;
+    field_ptr!(desc_ptr, Descriptor, addr).write(&da).unwrap();
+    field_ptr!(desc_ptr, Descriptor, len).write(&len).unwrap();
 }
 
 #[inline]
 #[allow(clippy::type_complexity)]
-fn set_buf_writer(desc_ptr: &DescriptorPtr, writer: &VmWriter) {
-    let va = writer.cursor() as usize;
-    let pa = aster_frame::vm::vaddr_to_paddr(va).unwrap();
-    field_ptr!(desc_ptr, Descriptor, addr)
-        .write(&(pa as u64))
-        .unwrap();
-    field_ptr!(desc_ptr, Descriptor, len)
-        .write(&(writer.avail() as u32))
-        .unwrap();
+fn set_buf_writer(desc_ptr: &DescriptorPtr, writer: &DmaWriter) {
+    let da = writer.daddr() as u64;
+    let len = writer.avail() as u32;
+    field_ptr!(desc_ptr, Descriptor, addr).write(&da).unwrap();
+    field_ptr!(desc_ptr, Descriptor, len).write(&len).unwrap();
 }
 
 bitflags! {

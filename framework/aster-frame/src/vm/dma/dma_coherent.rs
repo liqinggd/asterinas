@@ -3,14 +3,16 @@
 use alloc::sync::Arc;
 use core::ops::Deref;
 
-use super::{check_and_insert_dma_mapping, remove_dma_mapping, DmaError, HasDaddr};
+use super::{
+    check_and_insert_dma_mapping, remove_dma_mapping, DmaError, DmaReader, DmaWriter, HasDaddr,
+};
 use crate::{
     arch::{iommu, mm::PageTableFlags},
     vm::{
         dma::{dma_type, Daddr, DmaType},
         paddr_to_vaddr,
         page_table::KERNEL_PAGE_TABLE,
-        HasPaddr, Paddr, VmIo, VmReader, VmSegment, VmWriter, PAGE_SIZE,
+        HasPaddr, Paddr, VmIo, VmSegment, PAGE_SIZE,
     },
 };
 
@@ -146,13 +148,15 @@ impl VmIo for DmaCoherent {
 
 impl<'a> DmaCoherent {
     /// Returns a reader to read data from it.
-    pub fn reader(&'a self) -> VmReader<'a> {
-        self.inner.vm_segment.reader()
+    pub fn reader(&'a self) -> DmaReader<'a> {
+        // Safety: the `start_daddr` is the start device address of the VmSegment.
+        unsafe { DmaReader::from_vm(self.inner.vm_segment.reader(), self.inner.start_daddr) }
     }
 
     /// Returns a writer to write data into it.
-    pub fn writer(&'a self) -> VmWriter<'a> {
-        self.inner.vm_segment.writer()
+    pub fn writer(&'a self) -> DmaWriter<'a> {
+        // Safety: the `start_daddr` is the start device address of the VmSegment.
+        unsafe { DmaWriter::from_vm(self.inner.vm_segment.writer(), self.inner.start_daddr) }
     }
 }
 
