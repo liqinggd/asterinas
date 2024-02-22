@@ -3,13 +3,15 @@
 use alloc::sync::Arc;
 use core::{arch::x86_64::_mm_clflush, ops::Range};
 
-use super::{check_and_insert_dma_mapping, remove_dma_mapping, DmaError, HasDaddr};
+use super::{
+    check_and_insert_dma_mapping, remove_dma_mapping, DmaError, DmaReader, DmaWriter, HasDaddr,
+};
 use crate::{
     arch::iommu,
     error::Error,
     vm::{
         dma::{dma_type, Daddr, DmaType},
-        HasPaddr, Paddr, VmIo, VmReader, VmSegment, VmWriter, PAGE_SIZE,
+        HasPaddr, Paddr, VmIo, VmSegment, PAGE_SIZE,
     },
 };
 
@@ -173,19 +175,25 @@ impl VmIo for DmaStream {
 
 impl<'a> DmaStream {
     /// Returns a reader to read data from it.
-    pub fn reader(&'a self) -> Result<VmReader<'a>, Error> {
+    pub fn reader(&'a self) -> Result<DmaReader<'a>, Error> {
         if self.inner.direction == DmaDirection::ToDevice {
             return Err(Error::AccessDenied);
         }
-        Ok(self.inner.vm_segment.reader())
+        // Safety: the `start_daddr` is the start device address of the VmSegment.
+        let dma_reader =
+            unsafe { DmaReader::from_vm(self.inner.vm_segment.reader(), self.inner.start_daddr) };
+        Ok(dma_reader)
     }
 
     /// Returns a writer to write data into it.
-    pub fn writer(&'a self) -> Result<VmWriter<'a>, Error> {
+    pub fn writer(&'a self) -> Result<DmaWriter<'a>, Error> {
         if self.inner.direction == DmaDirection::FromDevice {
             return Err(Error::AccessDenied);
         }
-        Ok(self.inner.vm_segment.writer())
+        // Safety: the `start_daddr` is the start device address of the VmSegment.
+        let dma_writer =
+            unsafe { DmaWriter::from_vm(self.inner.vm_segment.writer(), self.inner.start_daddr) };
+        Ok(dma_writer)
     }
 }
 
