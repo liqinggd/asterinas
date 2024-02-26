@@ -66,6 +66,7 @@ pub fn init() {
     arch::after_all_init();
     bus::init();
     invoke_ffi_init_funcs();
+    x86_64::instructions::interrupts::enable();
 }
 
 fn invoke_ffi_init_funcs() {
