@@ -2,8 +2,8 @@
 
 use core::ops::Range;
 
-use aster_frame::vm::VmIo;
-use aster_rights::{Dup, Rights, TRightSet, TRights};
+use aster_frame::vm::{VmIo, VmReader, VmWriter};
+use aster_rights::{Dup, Read, Rights, TRightSet, TRights, Write};
 use aster_rights_proc::require;
 
 use super::{
@@ -176,6 +176,16 @@ impl<R: TRights> Vmar<TRightSet<R>> {
         } else {
             return_errno_with_message!(Errno::EACCES, "check rights failed");
         }
+    }
+
+    #[require(R > Read)]
+    pub fn read_vm(&self, offset: usize, vm_writer: &mut VmWriter) -> Result<()> {
+        self.0.read_vm(offset, vm_writer)
+    }
+
+    #[require(R > Write)]
+    pub fn write_vm(&self, offset: usize, vm_reader: &mut VmReader) -> Result<()> {
+        self.0.write_vm(offset, vm_reader)
     }
 }
 

@@ -20,7 +20,7 @@ use crate::{
         device::Device,
         utils::{
             CStr256, DirentVisitor, FileSystem, FsFlags, Inode, InodeMode, InodeType, IoctlCmd,
-            Metadata, PageCache, PageCacheBackend, SuperBlock,
+            Metadata, PageCache, PageCacheBackend, SuperBlock, UserIoUnit,
         },
     },
     prelude::*,
@@ -469,6 +469,54 @@ impl Inode for RamInode {
 
     fn read_direct_at(&self, offset: usize, buf: &mut [u8]) -> Result<usize> {
         self.read_at(offset, buf)
+    }
+
+    fn read_uio(&self, offset: usize, mut uio: UserIoUnit) -> Result<usize> {
+        let self_inode = self.0.read();
+        let Some(page_cache) = self_inode.inner.as_file() else {
+            return_errno_with_message!(Errno::EISDIR, "read is not supported");
+        };
+
+        let (offset, read_len) = {
+            let file_size = self_inode.metadata.size;
+            let start = file_size.min(offset);
+            let end = file_size.min(offset + uio.len());
+            (start, end - start)
+        };
+        uio.set_len(read_len);
+        let len = page_cache.pages().read_uio(offset, uio)?;
+        Ok(len)
+    }
+
+    fn write_uio(&self, offset: usize, uio: UserIoUnit) -> Result<usize> {
+        let self_inode = self.0.upread();
+        let Some(page_cache) = self_inode.inner.as_file() else {
+            return_errno_with_message!(Errno::EISDIR, "write is not supported");
+        };
+
+        let file_size = self_inode.metadata.size;
+        let new_size = offset + uio.len();
+        if new_size > file_size {
+            page_cache.pages().resize(new_size)?;
+        }
+        let write_len = match page_cache.pages().write_uio(offset, uio) {
+            Ok(len) => len,
+            Err(e) => {
+                if new_size > file_size {
+                    page_cache.pages().resize(file_size)?;
+                }
+                return Err(e);
+            }
+        };
+
+        let actual_new_size = offset + write_len;
+        if actual_new_size > file_size {
+            page_cache.pages().resize(actual_new_size)?;
+            // Turn the read guard into a write guard without releasing the lock.
+            let mut self_inode = self_inode.upgrade();
+            self_inode.resize(actual_new_size);
+        }
+        Ok(write_len)
     }
 
     fn write_at(&self, offset: usize, buf: &[u8]) -> Result<usize> {

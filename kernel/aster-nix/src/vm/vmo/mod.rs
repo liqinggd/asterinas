@@ -7,7 +7,7 @@ use core::ops::Range;
 use align_ext::AlignExt;
 use aster_frame::{
     collections::xarray::{CursorMut, XArray, XMark},
-    vm::{VmAllocOptions, VmFrame, VmFrameVec, VmIo},
+    vm::{VmAllocOptions, VmFrame, VmFrameVec, VmIo, VmReader, VmWriter},
 };
 use aster_rights::Rights;
 
@@ -22,6 +22,7 @@ pub use options::{VmoChildOptions, VmoOptions};
 pub use pager::Pager;
 
 use self::options::ChildType;
+use crate::fs::utils::UserIoUnit;
 
 /// Virtual Memory Objects (VMOs) are a type of capability that represents a
 /// range of memory pages.
@@ -361,6 +362,131 @@ impl Vmo_ {
             }
         }
         Ok(())
+    }
+
+    pub fn read_vm(&self, offset: usize, vm_writer: &mut VmWriter) -> Result<()> {
+        let read_len = vm_writer.avail();
+        let read_range = offset..(offset + read_len);
+        let frames = self.commit(read_range, false)?;
+        let read_offset = offset % PAGE_SIZE;
+        Ok(frames.read_vm(read_offset, vm_writer)?)
+    }
+
+    pub fn write_vm(&self, offset: usize, vm_reader: &mut VmReader) -> Result<()> {
+        let write_len = vm_reader.remain();
+        let write_range = offset..(offset + write_len);
+        let frames = self.commit(write_range.clone(), true)?;
+        let write_offset = offset % PAGE_SIZE;
+        frames.write_vm(write_offset, vm_reader)?;
+        let is_cow_vmo = self.is_cow_vmo();
+        if let Some(pager) = &self.pager
+            && !is_cow_vmo
+        {
+            let raw_page_idx_range = get_page_idx_range(&write_range);
+            let page_idx_range = (raw_page_idx_range.start + self.page_idx_offset)
+                ..(raw_page_idx_range.end + self.page_idx_offset);
+            for page_idx in page_idx_range {
+                pager.update_page(page_idx)?;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn read_uio(&self, offset: usize, uio: UserIoUnit) -> Result<usize> {
+        let read_range = offset..(offset + uio.len());
+        let read_page_idx_range = get_page_idx_range(&read_range);
+        let read_page_idx_range_len = read_page_idx_range.len();
+
+        let mut total_len = 0;
+        for (idx, page_idx) in read_page_idx_range.enumerate() {
+            let frame = match self.commit_page(page_idx * PAGE_SIZE, false) {
+                Ok(frame) => frame,
+                Err(e) => {
+                    if total_len == 0 {
+                        return Err(e);
+                    } else {
+                        break;
+                    }
+                }
+            };
+
+            let start = if idx == 0 {
+                read_range.start % PAGE_SIZE
+            } else {
+                0
+            };
+            let len = if idx == read_page_idx_range_len - 1 {
+                read_range.end % PAGE_SIZE - start
+            } else {
+                PAGE_SIZE - start
+            };
+            let mut reader = frame.reader().skip(start).limit(len);
+            if let Err(e) = uio.vmar().write_vm(uio.offset() + total_len, &mut reader) {
+                if total_len == 0 {
+                    return Err(e);
+                } else {
+                    break;
+                }
+            }
+            total_len += len;
+        }
+
+        Ok(total_len)
+    }
+
+    pub fn write_uio(&self, offset: usize, uio: UserIoUnit) -> Result<usize> {
+        let write_range = offset..(offset + uio.len());
+        let write_page_idx_range = get_page_idx_range(&write_range);
+        let write_page_idx_range_len = write_page_idx_range.len();
+
+        let mut total_len = 0;
+        for (idx, page_idx) in write_page_idx_range.enumerate() {
+            let frame = match self.commit_page(page_idx * PAGE_SIZE, true) {
+                Ok(frame) => frame,
+                Err(e) => {
+                    if total_len == 0 {
+                        return Err(e);
+                    } else {
+                        break;
+                    }
+                }
+            };
+
+            let start = if idx == 0 {
+                write_range.start % PAGE_SIZE
+            } else {
+                0
+            };
+            let len = if idx == write_page_idx_range_len - 1 {
+                write_range.end % PAGE_SIZE - start
+            } else {
+                PAGE_SIZE - start
+            };
+            let mut writer = frame.writer().skip(start).limit(len);
+            if let Err(e) = uio.vmar().read_vm(uio.offset() + total_len, &mut writer) {
+                if total_len == 0 {
+                    return Err(e);
+                } else {
+                    break;
+                }
+            }
+            total_len += len;
+        }
+
+        let actual_write_range = offset..(offset + total_len);
+
+        let is_cow_vmo = self.is_cow_vmo();
+        if let Some(pager) = &self.pager
+            && !is_cow_vmo
+        {
+            let raw_page_idx_range = get_page_idx_range(&actual_write_range);
+            let page_idx_range = (raw_page_idx_range.start + self.page_idx_offset)
+                ..(raw_page_idx_range.end + self.page_idx_offset);
+            for page_idx in page_idx_range {
+                pager.update_page(page_idx)?;
+            }
+        }
+        Ok(total_len)
     }
 
     /// Clear the target range in current VMO.

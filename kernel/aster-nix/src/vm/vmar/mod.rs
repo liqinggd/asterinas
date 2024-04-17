@@ -11,7 +11,7 @@ pub mod vm_mapping;
 use core::ops::Range;
 
 use align_ext::AlignExt;
-use aster_frame::vm::{VmSpace, MAX_USERSPACE_VADDR};
+use aster_frame::vm::{VmReader, VmSpace, VmWriter, MAX_USERSPACE_VADDR};
 use aster_rights::Rights;
 
 use self::{
@@ -406,6 +406,68 @@ impl Vmar_ {
         }
         inner.free_regions.clear();
         inner.free_regions.append(&mut new_free_regions);
+    }
+
+    pub fn read_vm(&self, offset: usize, vm_writer: &mut VmWriter) -> Result<()> {
+        let read_start = self.base + offset;
+        let read_end = vm_writer.avail() + read_start;
+        let read_range = read_start..read_end;
+        // If the read range is in child vmar.
+        let inner = self.inner.lock();
+        for child_vmar_ in inner.child_vmar_s.find(&read_range) {
+            let child_vmar_range = child_vmar_.range();
+            if child_vmar_range.start <= read_start && read_end <= child_vmar_range.end {
+                let child_offset = read_start - child_vmar_range.start;
+                return child_vmar_.read_vm(child_offset, vm_writer);
+            }
+        }
+
+        // If the read range is in mapped vmo.
+        for vm_mapping in inner.vm_mappings.find(&read_range) {
+            let vm_mapping_range = vm_mapping.range();
+            if vm_mapping_range.start <= read_start && read_end <= vm_mapping_range.end {
+                let vm_mapping_offset = read_start - vm_mapping_range.start;
+                return vm_mapping.read_vm(vm_mapping_offset, vm_writer);
+            }
+        }
+
+        // FIXME: If the read range is across different vmos or child vmars, should we directly return error?
+        return_errno_with_message!(Errno::EACCES, "read range is not backed up by a vmo");
+    }
+
+    pub fn write_vm(&self, offset: usize, vm_reader: &mut VmReader) -> Result<()> {
+        let write_start = self
+            .base
+            .checked_add(offset)
+            .ok_or_else(|| Error::with_message(Errno::EFAULT, "Arithmetic Overflow"))?;
+
+        let write_end = vm_reader
+            .remain()
+            .checked_add(write_start)
+            .ok_or_else(|| Error::with_message(Errno::EFAULT, "Arithmetic Overflow"))?;
+        let write_range = write_start..write_end;
+
+        // If the write range is in child vmar.
+        let inner = self.inner.lock();
+        for child_vmar_ in inner.child_vmar_s.find(&write_range) {
+            let child_vmar_range = child_vmar_.range();
+            if child_vmar_range.start <= write_start && write_end <= child_vmar_range.end {
+                let child_offset = write_start - child_vmar_range.start;
+                return child_vmar_.write_vm(child_offset, vm_reader);
+            }
+        }
+
+        // If the write range is in mapped vmo.
+        for vm_mapping in inner.vm_mappings.find(&write_range) {
+            let vm_mapping_range = vm_mapping.range();
+            if vm_mapping_range.start <= write_start && write_end <= vm_mapping_range.end {
+                let vm_mapping_offset = write_start - vm_mapping_range.start;
+                return vm_mapping.write_vm(vm_mapping_offset, vm_reader);
+            }
+        }
+
+        // FIXME: If the write range is across different vmos or child vmars, should we directly return error?
+        return_errno_with_message!(Errno::EACCES, "write range is not backed up by a vmo");
     }
 
     pub fn read(&self, offset: usize, buf: &mut [u8]) -> Result<()> {
