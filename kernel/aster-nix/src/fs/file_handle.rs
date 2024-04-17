@@ -6,7 +6,7 @@ use crate::{
     events::{IoEvents, Observer},
     fs::{
         device::Device,
-        utils::{AccessMode, InodeMode, IoctlCmd, Metadata, SeekFrom, StatusFlags},
+        utils::{AccessMode, InodeMode, IoctlCmd, Metadata, SeekFrom, StatusFlags, UserIoUnit},
     },
     net::socket::Socket,
     prelude::*,
@@ -21,6 +21,14 @@ pub trait FileLike: Send + Sync + Any {
 
     fn write(&self, buf: &[u8]) -> Result<usize> {
         return_errno_with_message!(Errno::EINVAL, "write is not supported");
+    }
+
+    fn read_uio(&self, uio: UserIoUnit) -> Result<usize> {
+        return_errno_with_message!(Errno::EINVAL, "read uio is not supported");
+    }
+
+    fn write_uio(&self, uio: UserIoUnit) -> Result<usize> {
+        return_errno_with_message!(Errno::EINVAL, "write uio is not supported");
     }
 
     fn ioctl(&self, cmd: IoctlCmd, arg: usize) -> Result<i32> {

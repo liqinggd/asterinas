@@ -2,7 +2,9 @@
 
 use core::ops::Range;
 
-use aster_frame::vm::{VmFrame, VmFrameVec, VmIo, VmMapOptions, VmPerm, VmSpace};
+use aster_frame::vm::{
+    VmFrame, VmFrameVec, VmIo, VmMapOptions, VmPerm, VmReader, VmSpace, VmWriter,
+};
 
 use super::{interval::Interval, is_intersected, Vmar, Vmar_};
 use crate::{
@@ -182,6 +184,49 @@ impl VmMapping {
     /// the vmo_offset
     pub fn vmo_offset(&self) -> usize {
         self.inner.lock().vmo_offset
+    }
+
+    pub fn read_vm(&self, offset: usize, vm_writer: &mut VmWriter) -> Result<()> {
+        let vmo_read_offset = self.vmo_offset() + offset;
+
+        // TODO: the current logic is vulnerable to TOCTTOU attack, since the permission may change after check.
+        let page_idx_range =
+            get_page_idx_range(&(vmo_read_offset..vmo_read_offset + vm_writer.avail()));
+        let read_perm = VmPerm::R;
+        for page_idx in page_idx_range {
+            self.check_perm(&page_idx, &read_perm)?;
+        }
+
+        self.vmo.0.read_vm(vmo_read_offset, vm_writer)
+    }
+
+    pub fn write_vm(&self, offset: usize, vm_reader: &mut VmReader) -> Result<()> {
+        let vmo_write_offset = self.vmo_offset() + offset;
+
+        let page_idx_range =
+            get_page_idx_range(&(vmo_write_offset..vmo_write_offset + vm_reader.remain()));
+        let write_perm = VmPerm::W;
+
+        let mut page_addr =
+            self.map_to_addr() - self.vmo_offset() + page_idx_range.start * PAGE_SIZE;
+        for page_idx in page_idx_range {
+            self.check_perm(&page_idx, &write_perm)?;
+
+            let parent = self.parent.upgrade().unwrap();
+            let vm_space = parent.vm_space();
+
+            // The `VmMapping` has the write permission but the corresponding PTE is present and is read-only.
+            // This means this PTE is set to read-only due to the COW mechanism. In this situation we need to trigger a
+            // page fault before writing at the VMO to guarantee the consistency between VMO and the page table.
+            let need_page_fault = vm_space.is_mapped(page_addr) && !vm_space.is_writable(page_addr);
+            if need_page_fault {
+                self.handle_page_fault(page_addr, false, true)?;
+            }
+            page_addr += PAGE_SIZE;
+        }
+
+        self.vmo.0.write_vm(vmo_write_offset, vm_reader)?;
+        Ok(())
     }
 
     pub fn read_bytes(&self, offset: usize, buf: &mut [u8]) -> Result<()> {

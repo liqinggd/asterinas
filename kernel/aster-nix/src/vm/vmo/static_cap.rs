@@ -3,14 +3,14 @@
 use core::ops::Range;
 
 use aster_frame::vm::{VmFrame, VmIo};
-use aster_rights::{Dup, Rights, TRightSet, TRights, Write};
+use aster_rights::{Dup, Read, Rights, TRightSet, TRights, Write};
 use aster_rights_proc::require;
 
 use super::{
     options::{VmoCowChild, VmoSliceChild},
     Vmo, VmoChildOptions, VmoRightsOp,
 };
-use crate::prelude::*;
+use crate::{prelude::*, vm::vmo::UserIoUnit};
 
 impl<R: TRights> Vmo<TRightSet<R>> {
     /// Creates a new slice VMO through a set of VMO child options.
@@ -143,6 +143,16 @@ impl<R: TRights> Vmo<TRightSet<R>> {
     #[require(R > R1)]
     pub fn restrict<R1: TRights>(self) -> Vmo<TRightSet<R1>> {
         Vmo(self.0, TRightSet(R1::new()))
+    }
+
+    #[require(R > Write)]
+    pub fn write_uio(&self, offset: usize, uio: UserIoUnit) -> Result<()> {
+        self.0.write_uio(offset, uio)
+    }
+
+    #[require(R > Read)]
+    pub fn read_uio(&self, offset: usize, uio: UserIoUnit) -> Result<()> {
+        self.0.read_uio(offset, uio)
     }
 }
 

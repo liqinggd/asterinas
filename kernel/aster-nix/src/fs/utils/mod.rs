@@ -32,7 +32,37 @@ mod page_cache;
 mod random_test;
 mod status_flags;
 
-use crate::prelude::*;
+use aster_rights::Full;
+
+use crate::{prelude::*, vm::vmar::Vmar};
+
+pub struct UserIoUnit<'a> {
+    vmar: &'a Vmar<Full>,
+    offset: usize,
+    len: usize,
+}
+
+impl<'a> UserIoUnit<'a> {
+    pub fn new(vmar: &'a Vmar<Full>, offset: usize, len: usize) -> Self {
+        Self { vmar, offset, len }
+    }
+
+    pub fn offset(&self) -> usize {
+        self.offset
+    }
+
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    pub fn set_len(&mut self, new_len: usize) {
+        self.len = new_len
+    }
+
+    pub fn vmar(&self) -> &Vmar<Full> {
+        &self.vmar
+    }
+}
 
 #[derive(Copy, PartialEq, Eq, Clone, Debug)]
 pub enum SeekFrom {
