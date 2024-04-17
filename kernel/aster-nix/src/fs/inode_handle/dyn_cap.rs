@@ -83,6 +83,8 @@ impl FileLike for InodeHandle<Rights> {
     fn group(&self) -> Result<Gid>;
     fn set_group(&self, gid: Gid) -> Result<()>;
     fn seek(&self, seek_from: SeekFrom) -> Result<usize>;
+    fn read_uio(&self, uio: UserIoUnit) -> Result<usize>;
+    fn write_uio(&self, uio: UserIoUnit) -> Result<usize>;
 
     fn read(&self, buf: &mut [u8]) -> Result<usize> {
         if !self.1.contains(Rights::READ) {

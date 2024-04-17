@@ -17,7 +17,7 @@ use crate::{
         file_handle::FileLike,
         utils::{
             AccessMode, Dentry, DirentVisitor, InodeMode, InodeType, IoctlCmd, Metadata, SeekFrom,
-            StatusFlags,
+            StatusFlags, UserIoUnit,
         },
     },
     prelude::*,
@@ -39,6 +39,24 @@ struct InodeHandle_ {
 }
 
 impl InodeHandle_ {
+    pub fn read_uio(&self, uio: UserIoUnit) -> Result<usize> {
+        let mut offset = self.offset.lock();
+        let len = self.dentry.inode().read_uio(*offset, uio)?;
+        *offset += len;
+        Ok(len)
+    }
+
+    pub fn write_uio(&self, uio: UserIoUnit) -> Result<usize> {
+        let mut offset = self.offset.lock();
+        if self.status_flags().contains(StatusFlags::O_APPEND) {
+            *offset = self.dentry.size();
+        }
+
+        let len = self.dentry.inode().write_uio(*offset, uio)?;
+        *offset += len;
+        Ok(len)
+    }
+
     pub fn read(&self, buf: &mut [u8]) -> Result<usize> {
         let mut offset = self.offset.lock();
 

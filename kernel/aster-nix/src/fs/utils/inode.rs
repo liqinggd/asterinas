@@ -8,7 +8,10 @@ use core2::io::{Error as IoError, ErrorKind as IoErrorKind, Result as IoResult, 
 use super::{DirentVisitor, FileSystem, IoctlCmd, SuperBlock};
 use crate::{
     events::IoEvents,
-    fs::device::{Device, DeviceType},
+    fs::{
+        device::{Device, DeviceType},
+        utils::UserIoUnit,
+    },
     prelude::*,
     process::{signal::Poller, Gid, Uid},
     vm::vmo::Vmo,
@@ -262,6 +265,14 @@ pub trait Inode: Any + Sync + Send {
 
     fn page_cache(&self) -> Option<Vmo<Full>> {
         None
+    }
+
+    fn read_uio(&self, offset: usize, uio: UserIoUnit) -> Result<usize> {
+        Err(Error::new(Errno::EISDIR))
+    }
+
+    fn write_uio(&self, offset: usize, uio: UserIoUnit) -> Result<usize> {
+        Err(Error::new(Errno::EISDIR))
     }
 
     fn read_at(&self, offset: usize, buf: &mut [u8]) -> Result<usize> {

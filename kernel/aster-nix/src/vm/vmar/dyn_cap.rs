@@ -2,7 +2,7 @@
 
 use core::ops::Range;
 
-use aster_frame::vm::VmIo;
+use aster_frame::vm::{VmIo, VmReader, VmWriter};
 use aster_rights::Rights;
 
 use super::{
@@ -155,6 +155,18 @@ impl Vmar<Rights> {
         vmar.check_rights(Rights::READ)?;
         let vmar_ = vmar.0.new_cow_root()?;
         Ok(Vmar(vmar_, Rights::all()))
+    }
+
+    pub fn read_vm(&self, offset: usize, vm_writer: &mut VmWriter) -> Result<()> {
+        self.check_rights(Rights::READ)?;
+        self.0.read_vm(offset, vm_writer)?;
+        Ok(())
+    }
+
+    pub fn write_vm(&self, offset: usize, vm_reader: &mut VmReader) -> Result<()> {
+        self.check_rights(Rights::WRITE)?;
+        self.0.write_vm(offset, vm_reader)?;
+        Ok(())
     }
 }
 

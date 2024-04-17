@@ -9,7 +9,7 @@ use super::{
     options::{VmoCowChild, VmoSliceChild},
     Vmo, VmoChildOptions, VmoRightsOp,
 };
-use crate::prelude::*;
+use crate::{fs::utils::UserIoUnit, prelude::*};
 
 impl Vmo<Rights> {
     /// Creates a new slice VMO through a set of VMO child options.
@@ -146,6 +146,18 @@ impl Vmo<Rights> {
     pub fn to_static<R1: TRights>(self) -> Result<Vmo<R1>> {
         self.check_rights(Rights::from_bits(R1::BITS).ok_or(Error::new(Errno::EINVAL))?)?;
         Ok(Vmo(self.0, R1::new()))
+    }
+
+    pub fn write_uio(&self, offset: usize, uio: UserIoUnit) -> Result<()> {
+        self.check_rights(Rights::WRITE)?;
+        self.0.write_uio(offset, uio)?;
+        Ok(())
+    }
+
+    pub fn read_uio(&self, offset: usize, uio: UserIoUnit) -> Result<()> {
+        self.check_rights(Rights::READ)?;
+        self.0.read_uio(offset, uio)?;
+        Ok(())
     }
 }
 

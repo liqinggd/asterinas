@@ -91,6 +91,49 @@ impl VmFrameVec {
     pub fn from_one_frame(frame: VmFrame) -> Self {
         Self(vec![frame])
     }
+
+    pub fn read_vm(&self, offset: usize, vm_writer: &mut VmWriter) -> Result<()> {
+        // Do bound check with potential integer overflow in mind
+        let max_offset = offset
+            .checked_add(vm_writer.avail())
+            .ok_or(Error::Overflow)?;
+        if max_offset > self.nbytes() {
+            return Err(Error::InvalidArgs);
+        }
+
+        let num_unread_pages = offset / PAGE_SIZE;
+        let mut start = offset % PAGE_SIZE;
+        for frame in self.0.iter().skip(num_unread_pages) {
+            let read_len = frame.reader().skip(start).read(vm_writer);
+            if read_len == 0 {
+                break;
+            }
+            start = 0;
+        }
+
+        Ok(())
+    }
+
+    pub fn write_vm(&self, offset: usize, vm_reader: &mut VmReader) -> Result<()> {
+        // Do bound check with potential integer overflow in mind
+        let max_offset = offset
+            .checked_add(vm_reader.remain())
+            .ok_or(Error::Overflow)?;
+        if max_offset > self.nbytes() {
+            return Err(Error::InvalidArgs);
+        }
+
+        let num_unwrite_pages = offset / PAGE_SIZE;
+        let mut start = offset % PAGE_SIZE;
+        for frame in self.0.iter().skip(num_unwrite_pages) {
+            let write_len = frame.writer().skip(start).write(vm_reader);
+            if write_len == 0 {
+                break;
+            }
+            start = 0;
+        }
+        Ok(())
+    }
 }
 
 impl IntoIterator for VmFrameVec {
@@ -105,43 +148,13 @@ impl IntoIterator for VmFrameVec {
 
 impl VmIo for VmFrameVec {
     fn read_bytes(&self, offset: usize, buf: &mut [u8]) -> Result<()> {
-        // Do bound check with potential integer overflow in mind
-        let max_offset = offset.checked_add(buf.len()).ok_or(Error::Overflow)?;
-        if max_offset > self.nbytes() {
-            return Err(Error::InvalidArgs);
-        }
-
-        let num_unread_pages = offset / PAGE_SIZE;
-        let mut start = offset % PAGE_SIZE;
         let mut buf_writer: VmWriter = buf.into();
-        for frame in self.0.iter().skip(num_unread_pages) {
-            let read_len = frame.reader().skip(start).read(&mut buf_writer);
-            if read_len == 0 {
-                break;
-            }
-            start = 0;
-        }
-        Ok(())
+        self.read_vm(offset, &mut buf_writer)
     }
 
     fn write_bytes(&self, offset: usize, buf: &[u8]) -> Result<()> {
-        // Do bound check with potential integer overflow in mind
-        let max_offset = offset.checked_add(buf.len()).ok_or(Error::Overflow)?;
-        if max_offset > self.nbytes() {
-            return Err(Error::InvalidArgs);
-        }
-
-        let num_unwrite_pages = offset / PAGE_SIZE;
-        let mut start = offset % PAGE_SIZE;
         let mut buf_reader: VmReader = buf.into();
-        for frame in self.0.iter().skip(num_unwrite_pages) {
-            let write_len = frame.writer().skip(start).write(&mut buf_reader);
-            if write_len == 0 {
-                break;
-            }
-            start = 0;
-        }
-        Ok(())
+        self.write_vm(offset, &mut buf_reader)
     }
 }
 
