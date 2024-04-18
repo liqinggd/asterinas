@@ -392,51 +392,101 @@ impl Vmo_ {
         Ok(())
     }
 
-    pub fn read_uio(&self, offset: usize, uio: UserIoUnit) -> Result<()> {
-        let read_len = uio.len();
-        let read_range = offset..(offset + read_len);
-        let frames = self.commit(read_range, false)?;
+    pub fn read_uio(&self, offset: usize, uio: UserIoUnit) -> Result<usize> {
+        let read_range = offset..(offset + uio.len());
+        let read_page_idx_range = get_page_idx_range(&read_range);
+        let read_page_idx_range_len = read_page_idx_range.len();
 
-        let mut start = offset % PAGE_SIZE;
-        let mut uio_offset = uio.offset();
-        for frame in frames.iter() {
-            let mut reader = frame.reader().skip(start);
-            let read_len = reader.remain();
-            uio.vmar().write_vm(uio_offset, &mut reader)?;
-            uio_offset += read_len;
-            start = 0;
+        let mut total_len = 0;
+        for (idx, page_idx) in read_page_idx_range.enumerate() {
+            let frame = match self.commit_page(page_idx * PAGE_SIZE, false) {
+                Ok(frame) => frame,
+                Err(e) => {
+                    if total_len == 0 {
+                        return Err(e);
+                    } else {
+                        break;
+                    }
+                }
+            };
+
+            let start = if idx == 0 {
+                read_range.start % PAGE_SIZE
+            } else {
+                0
+            };
+            let len = if idx == read_page_idx_range_len - 1 {
+                read_range.end % PAGE_SIZE - start
+            } else {
+                PAGE_SIZE - start
+            };
+            let mut reader = frame.reader().skip(start).limit(len);
+            if let Err(e) = uio.vmar().write_vm(uio.offset() + total_len, &mut reader) {
+                if total_len == 0 {
+                    return Err(e);
+                } else {
+                    break;
+                }
+            }
+            total_len += len;
         }
 
-        Ok(())
+        Ok(total_len)
     }
 
-    pub fn write_uio(&self, offset: usize, uio: UserIoUnit) -> Result<()> {
-        let write_len = uio.len();
-        let write_range = offset..(offset + write_len);
-        let frames = self.commit(write_range.clone(), true)?;
+    pub fn write_uio(&self, offset: usize, uio: UserIoUnit) -> Result<usize> {
+        let write_range = offset..(offset + uio.len());
+        let write_page_idx_range = get_page_idx_range(&write_range);
+        let write_page_idx_range_len = write_page_idx_range.len();
 
-        let mut start = offset % PAGE_SIZE;
-        let mut uio_offset = uio.offset();
-        for frame in frames.iter() {
-            let mut writer = frame.writer().skip(start);
-            let write_len = writer.avail();
-            uio.vmar().read_vm(uio_offset, &mut writer)?;
-            uio_offset += write_len;
-            start = 0;
+        let mut total_len = 0;
+        for (idx, page_idx) in write_page_idx_range.enumerate() {
+            let frame = match self.commit_page(page_idx * PAGE_SIZE, true) {
+                Ok(frame) => frame,
+                Err(e) => {
+                    if total_len == 0 {
+                        return Err(e);
+                    } else {
+                        break;
+                    }
+                }
+            };
+
+            let start = if idx == 0 {
+                write_range.start % PAGE_SIZE
+            } else {
+                0
+            };
+            let len = if idx == write_page_idx_range_len - 1 {
+                write_range.end % PAGE_SIZE - start
+            } else {
+                PAGE_SIZE - start
+            };
+            let mut writer = frame.writer().skip(start).limit(len);
+            if let Err(e) = uio.vmar().read_vm(uio.offset() + total_len, &mut writer) {
+                if total_len == 0 {
+                    return Err(e);
+                } else {
+                    break;
+                }
+            }
+            total_len += len;
         }
+
+        let actual_write_range = offset..(offset + total_len);
 
         let is_cow_vmo = self.is_cow_vmo();
         if let Some(pager) = &self.pager
             && !is_cow_vmo
         {
-            let raw_page_idx_range = get_page_idx_range(&write_range);
+            let raw_page_idx_range = get_page_idx_range(&actual_write_range);
             let page_idx_range = (raw_page_idx_range.start + self.page_idx_offset)
                 ..(raw_page_idx_range.end + self.page_idx_offset);
             for page_idx in page_idx_range {
                 pager.update_page(page_idx)?;
             }
         }
-        Ok(())
+        Ok(total_len)
     }
 
     /// Clear the target range in current VMO.

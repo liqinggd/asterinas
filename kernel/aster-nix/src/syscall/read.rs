@@ -20,8 +20,8 @@ pub fn sys_read(fd: FileDescripter, user_buf_addr: Vaddr, buf_len: usize) -> Res
 
     if buf_len == 8192 {
         let uio = UserIoUnit::new(current.root_vmar(), user_buf_addr, buf_len);
-        let read_len = file.read_uio(uio)?;
-        return Ok(SyscallReturn::Return(read_len as _));
+        let _ = file.read_uio(uio)?;
+        return Ok(SyscallReturn::Return(buf_len as _));
     }
 
     let mut read_buf = vec![0u8; buf_len];

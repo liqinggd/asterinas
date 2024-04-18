@@ -484,8 +484,8 @@ impl Inode for RamInode {
             (start, end - start)
         };
         uio.set_len(read_len);
-        page_cache.pages().read_uio(offset, uio)?;
-        Ok(read_len)
+        let len = page_cache.pages().read_uio(offset, uio)?;
+        Ok(len)
     }
 
     fn write_uio(&self, offset: usize, uio: UserIoUnit) -> Result<usize> {
@@ -495,19 +495,28 @@ impl Inode for RamInode {
         };
 
         let file_size = self_inode.metadata.size;
-        let len = uio.len();
-        let new_size = offset + len;
-        let should_expand_size = new_size > file_size;
-        if should_expand_size {
+        let new_size = offset + uio.len();
+        if new_size > file_size {
             page_cache.pages().resize(new_size)?;
         }
-        page_cache.pages().write_uio(offset, uio)?;
-        if should_expand_size {
+        let write_len = match page_cache.pages().write_uio(offset, uio) {
+            Ok(len) => len,
+            Err(e) => {
+                if new_size > file_size {
+                    page_cache.pages().resize(file_size)?;
+                }
+                return Err(e);
+            }
+        };
+
+        let actual_new_size = offset + write_len;
+        if actual_new_size > file_size {
+            page_cache.pages().resize(actual_new_size)?;
             // Turn the read guard into a write guard without releasing the lock.
             let mut self_inode = self_inode.upgrade();
-            self_inode.resize(new_size);
+            self_inode.resize(actual_new_size);
         }
-        Ok(len)
+        Ok(write_len)
     }
 
     fn write_at(&self, offset: usize, buf: &[u8]) -> Result<usize> {
