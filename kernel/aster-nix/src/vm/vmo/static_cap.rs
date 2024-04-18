@@ -146,12 +146,12 @@ impl<R: TRights> Vmo<TRightSet<R>> {
     }
 
     #[require(R > Write)]
-    pub fn write_uio(&self, offset: usize, uio: UserIoUnit) -> Result<()> {
+    pub fn write_uio(&self, offset: usize, uio: UserIoUnit) -> Result<usize> {
         self.0.write_uio(offset, uio)
     }
 
     #[require(R > Read)]
-    pub fn read_uio(&self, offset: usize, uio: UserIoUnit) -> Result<()> {
+    pub fn read_uio(&self, offset: usize, uio: UserIoUnit) -> Result<usize> {
         self.0.read_uio(offset, uio)
     }
 }

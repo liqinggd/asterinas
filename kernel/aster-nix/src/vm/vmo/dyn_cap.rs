@@ -148,16 +148,16 @@ impl Vmo<Rights> {
         Ok(Vmo(self.0, R1::new()))
     }
 
-    pub fn write_uio(&self, offset: usize, uio: UserIoUnit) -> Result<()> {
+    pub fn write_uio(&self, offset: usize, uio: UserIoUnit) -> Result<usize> {
         self.check_rights(Rights::WRITE)?;
-        self.0.write_uio(offset, uio)?;
-        Ok(())
+        let len = self.0.write_uio(offset, uio)?;
+        Ok(len)
     }
 
-    pub fn read_uio(&self, offset: usize, uio: UserIoUnit) -> Result<()> {
+    pub fn read_uio(&self, offset: usize, uio: UserIoUnit) -> Result<usize> {
         self.check_rights(Rights::READ)?;
-        self.0.read_uio(offset, uio)?;
-        Ok(())
+        let len = self.0.read_uio(offset, uio)?;
+        Ok(len)
     }
 }
 
