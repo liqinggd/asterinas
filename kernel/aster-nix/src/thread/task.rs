@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
+use core::sync::atomic::Ordering;
+
 use aster_frame::{
     cpu::UserContext,
     task::{preempt, Task, TaskOptions},
@@ -32,6 +34,7 @@ pub fn create_new_user_task(user_space: Arc<UserSpace>, thread_ref: Weak<Thread>
         );
         loop {
             let user_event = user_mode.execute();
+            let start = rdtsc();
             let context = user_mode.context_mut();
             // handle user event:
             handle_user_event(user_event, context);
@@ -53,6 +56,9 @@ pub fn create_new_user_task(user_space: Arc<UserSpace>, thread_ref: Weak<Thread>
             }
             // a preemption point after handling user event.
             preempt();
+            let end = rdtsc();
+            let cycles = end - start;
+            HANDLE_EVENT.fetch_add(cycles, Ordering::Relaxed);
         }
         debug!("exit user loop");
         // FIXME: This is a work around: exit in kernel task entry may be not called. Why this will happen?

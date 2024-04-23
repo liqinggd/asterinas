@@ -6,6 +6,29 @@ use trapframe::TrapFrame;
 
 use crate::{cpu::UserContext, prelude::*, task::Task, vm::VmSpace};
 
+core::arch::global_asm!(
+    ".globl asm_rdtsc",
+    "asm_rdtsc:",
+    "rdtsc",
+    "shlq $32, %rdx",
+    "or %rdx, %rax",
+    "ret",
+    options(att_syntax)
+);
+
+extern "C" {
+    pub fn asm_rdtsc() -> u64;
+}
+
+use core::sync::atomic::{AtomicU64, Ordering};
+pub static SPACE_CYCLES: AtomicU64 = AtomicU64::new(0);
+pub static CONTEXT_CYCLES: AtomicU64 = AtomicU64::new(0);
+pub static HANDLE_EVENT: AtomicU64 = AtomicU64::new(0);
+pub static READ_BUF_CYCLES: AtomicU64 = AtomicU64::new(0);
+pub static COPY_BUF_CYCLES: AtomicU64 = AtomicU64::new(0);
+pub static GETPID_CYCLES: AtomicU64 = AtomicU64::new(0);
+pub static TOTAL_NUM: AtomicU64 = AtomicU64::new(0);
+
 /// A user space.
 ///
 /// Each user space has a VM address space and allows a task to execute in
@@ -138,11 +161,49 @@ impl<'a> UserMode<'a> {
     /// After handling the user event and updating the user-mode CPU context,
     /// this method can be invoked again to go back to the user space.
     pub fn execute(&mut self) -> UserEvent {
+        let start = rdtsc();
         unsafe {
             self.user_space.vm_space().activate();
         }
+        let end = rdtsc();
+        let cycles = end - start;
+        SPACE_CYCLES.fetch_add(cycles, Ordering::Relaxed);
+
         debug_assert!(Arc::ptr_eq(&self.current, &Task::current()));
-        self.context.execute()
+
+        let start = rdtsc();
+        let event = self.context.execute();
+        let end = rdtsc();
+        let cycles = end - start;
+        CONTEXT_CYCLES.fetch_add(cycles, Ordering::Relaxed);
+
+        TOTAL_NUM.fetch_add(1, Ordering::Relaxed);
+        if TOTAL_NUM.load(Ordering::Relaxed) == 100000 {
+            let space_avg_cycles = SPACE_CYCLES.load(Ordering::Relaxed) / 100000;
+            let context_avg_cycles = CONTEXT_CYCLES.load(Ordering::Relaxed) / 100000;
+            let handle_event_cycles = HANDLE_EVENT.load(Ordering::Relaxed) / 100000;
+            let read_buf_cycles = READ_BUF_CYCLES.load(Ordering::Relaxed) / 100000;
+            let copy_buf_cycles = COPY_BUF_CYCLES.load(Ordering::Relaxed) / 100000;
+            let getpid_cycles = GETPID_CYCLES.load(Ordering::Relaxed) / 100000;
+            log::error!(
+                "space_avg_cycles: {}, context_avg_cycles: {}, handle_event: {}, read_buf_cycles: {}, copy_buf_cycles: {}, getpid_cycles: {}",
+                space_avg_cycles,
+                context_avg_cycles,
+                handle_event_cycles,
+                read_buf_cycles,
+                copy_buf_cycles,
+                getpid_cycles,
+            );
+
+            TOTAL_NUM.store(0, Ordering::Relaxed);
+            SPACE_CYCLES.store(0, Ordering::Relaxed);
+            CONTEXT_CYCLES.store(0, Ordering::Relaxed);
+            HANDLE_EVENT.store(0, Ordering::Relaxed);
+            READ_BUF_CYCLES.store(0, Ordering::Relaxed);
+            COPY_BUF_CYCLES.store(0, Ordering::Relaxed);
+            GETPID_CYCLES.store(0, Ordering::Relaxed);
+        }
+        event
     }
 
     /// Returns an immutable reference the user-mode CPU context.
@@ -167,4 +228,8 @@ impl<'a> UserMode<'a> {
 pub enum UserEvent {
     Syscall,
     Exception,
+}
+
+pub fn rdtsc() -> u64 {
+    unsafe { asm_rdtsc() }
 }

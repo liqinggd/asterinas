@@ -21,6 +21,7 @@ TEST_APPS := \
 	network \
 	pthread \
 	pty \
+	read \
 	signal_c \
 
 C_SOURCES := $(shell find . -type f \( -name "*.c" -or -name "*.h" \) )
