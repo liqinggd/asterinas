@@ -461,9 +461,13 @@ impl Inode for RamInode {
             let end = file_size.min(offset + buf.len());
             (start, end - start)
         };
+        // let start = rdtsc();
         page_cache
             .pages()
             .read_bytes(offset, &mut buf[..read_len])?;
+        // let end = rdtsc();
+        // let read_buf_cycles = end - start;
+        // READ_BUF_CYCLES.fetch_add(read_buf_cycles, Ordering::Relaxed);
         Ok(read_len)
     }
 
@@ -484,7 +488,11 @@ impl Inode for RamInode {
             (start, end - start)
         };
         uio.set_len(read_len);
+        let start = rdtsc();
         let len = page_cache.pages().read_uio(offset, uio)?;
+             let end = rdtsc();
+        let read_buf_cycles = end - start;
+        READ_BUF_CYCLES.fetch_add(read_buf_cycles, Ordering::Relaxed);
         Ok(len)
     }
 

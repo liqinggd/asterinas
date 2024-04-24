@@ -457,12 +457,17 @@ impl Vmar_ {
             }
         }
 
+        // let start = rdtsc();
         // If the write range is in mapped vmo.
         for vm_mapping in inner.vm_mappings.find(&write_range) {
             let vm_mapping_range = vm_mapping.range();
             if vm_mapping_range.start <= write_start && write_end <= vm_mapping_range.end {
                 let vm_mapping_offset = write_start - vm_mapping_range.start;
-                return vm_mapping.write_vm(vm_mapping_offset, vm_reader);
+                vm_mapping.write_vm(vm_mapping_offset, vm_reader)?;
+                    //  let end = rdtsc();
+                    //  let read_buf_cycles = end - start;
+                    //  READ_BUF_CYCLES.fetch_add(read_buf_cycles, Ordering::Relaxed);
+                    return Ok(());
             }
         }
 
@@ -498,6 +503,46 @@ impl Vmar_ {
     }
 
     pub fn write(&self, offset: usize, buf: &[u8]) -> Result<()> {
+        let buf_len = buf.len();
+        if buf_len == 8192 {
+            let write_start = self
+                .base
+                .checked_add(offset)
+                .ok_or_else(|| Error::with_message(Errno::EFAULT, "Arithmetic Overflow"))?;
+
+            let write_end = buf
+                .len()
+                .checked_add(write_start)
+                .ok_or_else(|| Error::with_message(Errno::EFAULT, "Arithmetic Overflow"))?;
+            let write_range = write_start..write_end;
+
+            // If the write range is in child vmar.
+            let inner = self.inner.lock();
+            for child_vmar_ in inner.child_vmar_s.find(&write_range) {
+                let child_vmar_range = child_vmar_.range();
+                if child_vmar_range.start <= write_start && write_end <= child_vmar_range.end {
+                    let child_offset = write_start - child_vmar_range.start;
+                    return child_vmar_.write(child_offset, buf);
+                }
+            }
+
+            
+            // If the write range is in mapped vmo.
+            for vm_mapping in inner.vm_mappings.find(&write_range) {
+                let vm_mapping_range = vm_mapping.range();
+                if vm_mapping_range.start <= write_start && write_end <= vm_mapping_range.end {
+                    let vm_mapping_offset = write_start - vm_mapping_range.start;
+                    // let start = rdtsc();
+                    vm_mapping.write_bytes(vm_mapping_offset, buf)?;
+                    // let end = rdtsc();
+                    // let read_buf_cycles = end - start;
+                    // READ_BUF_CYCLES.fetch_add(read_buf_cycles, Ordering::Relaxed);
+                    return Ok(());
+                }
+            }
+            panic!("");
+        }
+
         let write_start = self
             .base
             .checked_add(offset)

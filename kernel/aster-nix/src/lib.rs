@@ -2,8 +2,9 @@
 
 //! The std library of Asterinas.
 #![no_std]
-#![forbid(unsafe_code)]
+//#![forbid(unsafe_code)]
 #![allow(dead_code)]
+#![feature(new_uninit)]
 #![allow(incomplete_features)]
 #![allow(unused_variables)]
 #![feature(btree_cursors)]
@@ -80,8 +81,8 @@ fn init_thread() {
         "[kernel] Spawn init thread, tid = {}",
         current_thread!().tid()
     );
-    net::lazy_init();
-    fs::lazy_init();
+    // net::lazy_init();
+    // fs::lazy_init();
     // driver::pci::virtio::block::block_device_test();
     let thread = Thread::spawn_kernel_thread(ThreadOptions::new(|| {
         println!("[kernel] Hello world from kernel!");

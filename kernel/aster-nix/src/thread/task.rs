@@ -34,10 +34,11 @@ pub fn create_new_user_task(user_space: Arc<UserSpace>, thread_ref: Weak<Thread>
         );
         loop {
             let user_event = user_mode.execute();
-            let start = rdtsc();
             let context = user_mode.context_mut();
             // handle user event:
             handle_user_event(user_event, context);
+
+            let start = rdtsc();
             let current_thread = current_thread!();
             // should be do this comparison before handle signal?
             if current_thread.status().lock().is_exited() {

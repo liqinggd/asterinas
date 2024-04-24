@@ -145,11 +145,65 @@ impl IntoIterator for VmFrameVec {
         self.0.into_iter()
     }
 }
+use core::sync::atomic::Ordering;
+
+use crate::user::{rdtsc, READ_BUF_CYCLES};
 
 impl VmIo for VmFrameVec {
     fn read_bytes(&self, offset: usize, buf: &mut [u8]) -> Result<()> {
+        // Do bound check with potential integer overflow in mind
+        let max_offset = offset.checked_add(buf.len()).ok_or(Error::Overflow)?;
+        if max_offset > self.nbytes() {
+            return Err(Error::InvalidArgs);
+        }
+
+        let buf_len = buf.len();
+        let num_unread_pages = offset / PAGE_SIZE;
+        let mut start = offset % PAGE_SIZE;
         let mut buf_writer: VmWriter = buf.into();
-        self.read_vm(offset, &mut buf_writer)
+
+        // if buf_len == 8192 {
+        //     let mut start_1 = 0;
+        //     for frame in self.0.iter().skip(num_unread_pages) {
+        //         let mut reader = frame.reader().skip(start);
+
+        //         let read_len = {
+        //             let copy_len = reader.remain().min(buf_writer.avail());
+        //             // if copy_len == 0 {
+        //             //     return 0;
+        //             // }
+
+        //             // Safety: the memory range is valid since `copy_len` is the minimum
+        //             // of the reader's remaining data and the writer's available space.
+        //             unsafe {
+        //                 start_1 = rdtsc();
+        //                 core::ptr::copy(reader.cursor, buf_writer.cursor, copy_len);
+
+        //                 reader.cursor = reader.cursor.add(copy_len);
+        //                 buf_writer.cursor = buf_writer.cursor.add(copy_len);
+        //             }
+        //             copy_len
+        //         };
+        //         if read_len == 0 {
+        //             break;
+        //         }
+        //         start = 0;
+        //     }
+        //     let end = rdtsc();
+        //     let read_buf_cycles = end - start_1;
+        //     READ_BUF_CYCLES.fetch_add(read_buf_cycles, Ordering::Relaxed);
+        //     return Ok(());
+        // }
+
+        for frame in self.0.iter().skip(num_unread_pages) {
+            let read_len = frame.reader().skip(start).read(&mut buf_writer);
+            if read_len == 0 {
+                break;
+            }
+            start = 0;
+        }
+
+        Ok(())
     }
 
     fn write_bytes(&self, offset: usize, buf: &[u8]) -> Result<()> {

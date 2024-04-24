@@ -1,8 +1,18 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <time.h>
+
+unsigned long long rdtsc(void)
+{
+	unsigned long long lo, hi;
+	asm volatile (	"rdtsc\n"
+			: "=a"(lo), "=d"(hi)
+			);
+	return (unsigned long long) ( (hi<<32) | (lo) );
+}
 
 #define BUFFER_SIZE 8192 // 8KB
 #define NUM_OF_CALLS 1000000
@@ -22,11 +32,12 @@ int main(int argc, char *argv[])
 
 	char buffer[BUFFER_SIZE];
 	ssize_t bytes_read;
-	struct timespec start, end;
-	long long seconds, nanoseconds, total_nanoseconds, avg_latency;
+	unsigned long long start, end;
+	unsigned long long total_cycles, avg_latency;
 
-	clock_gettime(CLOCK_MONOTONIC, &start);
+	memset(buffer, 0, BUFFER_SIZE);
 
+	start = rdtsc();
 	for (int i = 0; i < NUM_OF_CALLS; i++) {
 		bytes_read = read(fd, buffer, BUFFER_SIZE);
 		if (bytes_read == 0) {
@@ -40,18 +51,14 @@ int main(int argc, char *argv[])
 			return 1;
 		}
 	}
+	end = rdtsc();
 
-	clock_gettime(CLOCK_MONOTONIC, &end);
-
-	seconds = end.tv_sec - start.tv_sec;
-	nanoseconds = end.tv_nsec - start.tv_nsec;
-
-	total_nanoseconds = seconds * 1e9 + nanoseconds;
-	avg_latency = total_nanoseconds / NUM_OF_CALLS;
+	total_cycles = end - start;
+	avg_latency = total_cycles / NUM_OF_CALLS;
 
 	printf("Executed the read() (buffer size %d) syscall %d times.\n",
 	       BUFFER_SIZE, NUM_OF_CALLS);
-	printf("Syscall average latency: %lld nanoseconds.\n", avg_latency);
+	printf("Syscall average latency: %lld cycles.\n", avg_latency);
 
 	close(fd);
 	return 0;

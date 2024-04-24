@@ -340,7 +340,13 @@ impl Vmo_ {
         let read_range = offset..(offset + read_len);
         let frames = self.commit(read_range, false)?;
         let read_offset = offset % PAGE_SIZE;
-        Ok(frames.read_bytes(read_offset, buf)?)
+
+        // let start = rdtsc();
+        frames.read_bytes(read_offset, buf)?;
+        // let end = rdtsc();
+        // let read_buf_cycles = end - start;
+        // READ_BUF_CYCLES.fetch_add(read_buf_cycles, Ordering::Relaxed);
+        Ok(())
     }
 
     /// Write the specified amount of buffer content starting from the target offset in the VMO.

@@ -11,11 +11,11 @@ pub(crate) use alloc::{
     vec,
     vec::Vec,
 };
-pub(crate) use core::{any::Any, ffi::CStr, fmt::Debug};
+pub(crate) use core::{any::Any, ffi::CStr, fmt::Debug, sync::atomic::Ordering};
 
 pub(crate) use aster_frame::{
     sync::{Mutex, MutexGuard, RwLock, RwMutex, SpinLock, SpinLockGuard},
-    user::{rdtsc, COPY_BUF_CYCLES, GETPID_CYCLES, HANDLE_EVENT, READ_BUF_CYCLES},
+    user::{clflush, rdtsc, GETPID_CYCLES, HANDLE_EVENT, READ_BUF_CYCLES},
     vm::{Vaddr, PAGE_SIZE},
 };
 pub(crate) use bitflags::bitflags;

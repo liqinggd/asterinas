@@ -16,8 +16,17 @@ core::arch::global_asm!(
     options(att_syntax)
 );
 
+// core::arch::global_asm!(
+//     ".global asm_clflush",  // 定义全局符号
+//     "asm_clflush:",         // 开始全局函数定义
+//     "clflush [{}], %rax",            // clflush指令，正确引用第一个参数
+//     "ret",                      // 返回
+//     options(att_syntax)         // 使用AT&T语法
+// );
+
 extern "C" {
     pub fn asm_rdtsc() -> u64;
+    // pub fn asm_clflush(address: *const u8);
 }
 
 use core::sync::atomic::{AtomicU64, Ordering};
@@ -25,7 +34,6 @@ pub static SPACE_CYCLES: AtomicU64 = AtomicU64::new(0);
 pub static CONTEXT_CYCLES: AtomicU64 = AtomicU64::new(0);
 pub static HANDLE_EVENT: AtomicU64 = AtomicU64::new(0);
 pub static READ_BUF_CYCLES: AtomicU64 = AtomicU64::new(0);
-pub static COPY_BUF_CYCLES: AtomicU64 = AtomicU64::new(0);
 pub static GETPID_CYCLES: AtomicU64 = AtomicU64::new(0);
 pub static TOTAL_NUM: AtomicU64 = AtomicU64::new(0);
 
@@ -183,15 +191,13 @@ impl<'a> UserMode<'a> {
             let context_avg_cycles = CONTEXT_CYCLES.load(Ordering::Relaxed) / 100000;
             let handle_event_cycles = HANDLE_EVENT.load(Ordering::Relaxed) / 100000;
             let read_buf_cycles = READ_BUF_CYCLES.load(Ordering::Relaxed) / 100000;
-            let copy_buf_cycles = COPY_BUF_CYCLES.load(Ordering::Relaxed) / 100000;
             let getpid_cycles = GETPID_CYCLES.load(Ordering::Relaxed) / 100000;
             log::error!(
-                "space_avg_cycles: {}, context_avg_cycles: {}, handle_event: {}, read_buf_cycles: {}, copy_buf_cycles: {}, getpid_cycles: {}",
+                "space_avg_cycles: {}, context_avg_cycles: {}, handle_event: {}, read_buf_cycles: {}, getpid_cycles: {}",
                 space_avg_cycles,
                 context_avg_cycles,
                 handle_event_cycles,
                 read_buf_cycles,
-                copy_buf_cycles,
                 getpid_cycles,
             );
 
@@ -200,7 +206,6 @@ impl<'a> UserMode<'a> {
             CONTEXT_CYCLES.store(0, Ordering::Relaxed);
             HANDLE_EVENT.store(0, Ordering::Relaxed);
             READ_BUF_CYCLES.store(0, Ordering::Relaxed);
-            COPY_BUF_CYCLES.store(0, Ordering::Relaxed);
             GETPID_CYCLES.store(0, Ordering::Relaxed);
         }
         event
@@ -232,4 +237,14 @@ pub enum UserEvent {
 
 pub fn rdtsc() -> u64 {
     unsafe { asm_rdtsc() }
+}
+
+pub fn clflush(address: *const u8) {
+    unsafe {
+        core::arch::asm!(
+            "clflush [{}]",
+            in(reg) address,
+            options(nostack)
+        );
+    }
 }

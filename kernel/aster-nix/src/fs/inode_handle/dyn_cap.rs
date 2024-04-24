@@ -90,7 +90,8 @@ impl FileLike for InodeHandle<Rights> {
         if !self.1.contains(Rights::READ) {
             return_errno_with_message!(Errno::EBADF, "File is not readable");
         }
-        self.0.read(buf)
+        let len = self.0.read(buf)?;
+        Ok(len)
     }
 
     fn write(&self, buf: &[u8]) -> Result<usize> {
