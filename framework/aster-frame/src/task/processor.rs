@@ -61,14 +61,11 @@ pub fn schedule() {
     }
 }
 
-pub fn preempt() {
+pub fn preempt(task: &Arc<Task>) {
     // TODO: Refactor `preempt` and `schedule`
     // after the Atomic mode and `might_break` is enabled.
-    let Some(curr_task) = current_task() else {
-        return;
-    };
     let mut scheduler = GLOBAL_SCHEDULER.lock_irq_disabled();
-    if !scheduler.should_preempt(&curr_task) {
+    if !scheduler.should_preempt(task) {
         return;
     }
     let Some(next_task) = scheduler.dequeue() else {

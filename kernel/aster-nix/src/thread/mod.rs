@@ -4,7 +4,7 @@
 
 use core::sync::atomic::{AtomicU32, Ordering};
 
-use aster_frame::task::Task;
+use aster_frame::task::{preempt, Task};
 
 use self::status::ThreadStatus;
 use crate::prelude::*;
@@ -80,6 +80,10 @@ impl Thread {
 
     pub fn status(&self) -> &Mutex<ThreadStatus> {
         &self.status
+    }
+
+    pub fn preempt(&self) {
+        preempt(&self.task)
     }
 
     pub fn yield_now() {

@@ -4,7 +4,7 @@ use core::sync::atomic::Ordering;
 
 use aster_frame::{
     cpu::UserContext,
-    task::{preempt, Task, TaskOptions},
+    task::{Task, TaskOptions},
     user::{UserContextApi, UserEvent, UserMode, UserSpace},
 };
 
@@ -44,7 +44,7 @@ pub fn create_new_user_task(user_space: Arc<UserSpace>, thread_ref: Weak<Thread>
             if current_thread.status().lock().is_exited() {
                 break;
             }
-            handle_pending_signal(context).unwrap();
+            handle_pending_signal(context, &current_thread).unwrap();
             if current_thread.status().lock().is_exited() {
                 debug!("exit due to signal");
                 break;
@@ -53,10 +53,10 @@ pub fn create_new_user_task(user_space: Arc<UserSpace>, thread_ref: Weak<Thread>
             while current_thread.status().lock().is_stopped() {
                 Thread::yield_now();
                 debug!("{} is suspended.", current_thread.tid());
-                handle_pending_signal(context).unwrap();
+                handle_pending_signal(context, &current_thread).unwrap();
             }
             // a preemption point after handling user event.
-            preempt();
+            current_thread.preempt();
             let end = rdtsc();
             let cycles = end - start;
             HANDLE_EVENT.fetch_add(cycles, Ordering::Relaxed);
