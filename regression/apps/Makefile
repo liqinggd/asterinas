@@ -21,6 +21,7 @@ TEST_APPS := \
 	network \
 	pthread \
 	pty \
+	read \
 	signal_c \
 
 # The C head and source files of all the apps, excluding the downloaded mongoose files
