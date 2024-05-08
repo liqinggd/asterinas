@@ -24,6 +24,7 @@ use core::ops::Range;
 
 use spin::Once;
 
+pub(crate) use self::space::activate_kernel_vm;
 pub use self::{
     dma::{Daddr, DmaCoherent, DmaDirection, DmaStream, DmaStreamSlice, HasDaddr},
     frame::{VmFrame, VmFrameVec, VmFrameVecIter, VmReader, VmSegment, VmWriter},

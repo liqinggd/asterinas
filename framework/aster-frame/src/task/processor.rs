@@ -10,7 +10,7 @@ use super::{
     task::{context_switch, TaskContext},
     Task, TaskStatus,
 };
-use crate::{cpu_local, sync::SpinLock};
+use crate::{cpu_local, sync::SpinLock, vm::activate_kernel_vm};
 
 pub struct Processor {
     current: Option<Arc<Task>>,
@@ -114,6 +114,14 @@ fn switch_to_task(next_task: Arc<Task>) {
     };
 
     let next_task_cx_ptr = next_task.ctx().get().cast_const();
+
+    if let Some(user_space) = next_task.user_space() {
+        // SAFETY: We're switching to the next task, so we can activate its VM space.
+        unsafe { user_space.vm_space().activate() };
+    } else {
+        // SAFETY: We're switching to a kernel task, so we can activate the kernel VM.
+        unsafe { activate_kernel_vm() };
+    }
 
     // change the current task to the next task
     PROCESSOR.lock().current = Some(next_task.clone());

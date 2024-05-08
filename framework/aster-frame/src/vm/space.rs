@@ -4,7 +4,7 @@ use core::ops::Range;
 
 use bitflags::bitflags;
 
-use super::{is_page_aligned, MapArea, MemorySet, VmFrameVec, VmIo};
+use super::{is_page_aligned, page_table::KERNEL_PAGE_TABLE, MapArea, MemorySet, VmFrameVec, VmIo};
 use crate::{arch::mm::PageTableFlags, prelude::*, sync::Mutex, vm::PAGE_SIZE, Error};
 
 /// Virtual memory space.
@@ -24,6 +24,23 @@ pub struct VmSpace {
     memory_set: Arc<Mutex<MemorySet>>,
 }
 
+/// Activates the page table that does not contain any user pages.
+///
+/// # Safety
+///
+/// Users must ensure that no user memory is accessed before another page table is activated.
+pub(crate) unsafe fn activate_kernel_vm() {
+    // SAFETY: The page table to be activated is a valid page table where all kernel pages are
+    // mapped properly and no user pages are mapped.
+    #[cfg(target_arch = "x86_64")]
+    unsafe {
+        crate::arch::x86::mm::activate_page_table(
+            KERNEL_PAGE_TABLE.get().unwrap().lock().root_paddr(),
+            x86_64::registers::control::Cr3Flags::PAGE_LEVEL_CACHE_DISABLE,
+        );
+    }
+}
+
 impl VmSpace {
     /// Creates a new VM address space.
     pub fn new() -> Self {
@@ -32,14 +49,22 @@ impl VmSpace {
         }
     }
 
-    /// Activate the page table, load root physical address to cr3
-    #[allow(clippy::missing_safety_doc)]
-    pub unsafe fn activate(&self) {
+    /// Activates the page table that contains user pages in this `VmSpace`.
+    ///
+    /// # Safety
+    ///
+    /// Users must ensure that any subsequent access to user memory before another page table is
+    /// activated is intended to access pages in this `VmSpace`.
+    pub(crate) unsafe fn activate(&self) {
+        // SAFETY: The page table to be activated is a valid page table where all kernel pages are
+        // mapped properly and all user pages belong to this `VmSpace`.
         #[cfg(target_arch = "x86_64")]
-        crate::arch::x86::mm::activate_page_table(
-            self.memory_set.lock().pt.root_paddr(),
-            x86_64::registers::control::Cr3Flags::PAGE_LEVEL_CACHE_DISABLE,
-        );
+        unsafe {
+            crate::arch::x86::mm::activate_page_table(
+                self.memory_set.lock().pt.root_paddr(),
+                x86_64::registers::control::Cr3Flags::PAGE_LEVEL_CACHE_DISABLE,
+            );
+        }
     }
 
     /// Maps some physical memory pages into the VM space according to the given
