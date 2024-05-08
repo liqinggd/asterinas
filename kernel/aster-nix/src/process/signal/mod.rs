@@ -16,7 +16,7 @@ pub mod signals;
 use core::mem;
 
 use align_ext::AlignExt;
-use aster_frame::{cpu::UserContext, task::Task};
+use aster_frame::cpu::UserContext;
 use c_types::{siginfo_t, ucontext_t};
 pub use events::{SigEvents, SigEventsFilter};
 pub use pauser::Pauser;
@@ -85,9 +85,8 @@ pub fn handle_pending_signal(
                         current.executable_path(),
                         sig_num.sig_name()
                     );
-                    do_exit_group(TermStatus::Killed(sig_num));
                     // We should exit current here, since we cannot restore a valid status from trap now.
-                    Task::current().exit();
+                    do_exit_group(TermStatus::Killed(sig_num));
                 }
                 SigDefaultAction::Ign => {}
                 SigDefaultAction::Stop => {

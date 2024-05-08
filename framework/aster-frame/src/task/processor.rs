@@ -14,6 +14,9 @@ use crate::{cpu_local, sync::SpinLock, vm::activate_kernel_vm};
 
 pub struct Processor {
     current: Option<Arc<Task>>,
+    /// A temporary variable used in [`switch_to_task`] to avoid dropping `current` while running
+    /// as `current`.
+    prev_task: Option<Arc<Task>>,
     idle_task_cx: TaskContext,
 }
 
@@ -21,6 +24,7 @@ impl Processor {
     pub fn new() -> Self {
         Self {
             current: None,
+            prev_task: None,
             idle_task_cx: TaskContext::default(),
         }
     }
@@ -123,16 +127,29 @@ fn switch_to_task(next_task: Arc<Task>) {
         unsafe { activate_kernel_vm() };
     }
 
-    // change the current task to the next task
-    PROCESSOR.lock().current = Some(next_task.clone());
+    // We cannot directly overwrite `current` at this point. Since we are running as `current`, we
+    // must avoid dropping `current`. Otherwise, the kernel stack may be unmapped, leading to
+    // soundness problems.
+    let mut processor = PROCESSOR.lock();
+    let old_current = processor.current.replace(next_task);
+    let old_prev_task = core::mem::replace(&mut processor.prev_task, old_current);
+    drop(processor);
+    drop(old_prev_task);
 
     // SAFETY:
     // 1. `ctx` is only used in `schedule()`. We have exclusive access to both the current task
     //    context and the next task context.
     // 2. The next task context is a valid task context.
     unsafe {
+        // This function may not return, for example, when the current task exits. So make sure
+        // that all variables on the stack can be forgotten without causing resource leakage.
         context_switch(current_task_cx_ptr, next_task_cx_ptr);
     }
+
+    // Now it's fine to drop `prev_task`. However, we choose not to do this because it is not
+    // always possible. For example, `context_switch` can switch directly to the entry point of the
+    // task. Not dropping is just fine because the only consequence is that we delay the drop to
+    // the next task switching.
 }
 
 cpu_local! {

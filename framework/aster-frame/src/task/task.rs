@@ -63,8 +63,8 @@ impl KernelStack {
     pub fn new_with_guard_page() -> Result<Self> {
         let stack_segment =
             VmAllocOptions::new(KERNEL_STACK_SIZE / PAGE_SIZE + 1).alloc_contiguous()?;
-        let unpresent_flag = PageTableFlags::empty();
-        let old_guard_page_flag = Self::protect_guard_page(&stack_segment, unpresent_flag);
+        // SAFETY: The safety conditions of `protect_guard_page` are met.
+        let old_guard_page_flag = unsafe { Self::protect_guard_page(&stack_segment) };
         Ok(Self {
             segment: stack_segment,
             old_guard_page_flag: Some(old_guard_page_flag),
@@ -79,21 +79,52 @@ impl KernelStack {
         self.old_guard_page_flag.is_some()
     }
 
-    fn protect_guard_page(stack_segment: &VmSegment, flags: PageTableFlags) -> PageTableFlags {
+    /// # Safety
+    ///
+    /// `stack_segment` must point to a kernel stack we're constructing where the first page is a
+    /// guard page.
+    unsafe fn protect_guard_page(stack_segment: &VmSegment) -> PageTableFlags {
         let mut kernel_pt = KERNEL_PAGE_TABLE.get().unwrap().lock();
         let guard_page_vaddr = {
             let guard_page_paddr = stack_segment.start_paddr();
             crate::vm::paddr_to_vaddr(guard_page_paddr)
         };
-        // Safety: The protected address must be the address of guard page hence it should be safe and valid.
-        unsafe { kernel_pt.protect(guard_page_vaddr, flags).unwrap() }
+
+        // SAFETY: The safety is upheld by the caller.
+        unsafe {
+            kernel_pt
+                .protect(guard_page_vaddr, PageTableFlags::empty())
+                .unwrap()
+        }
+    }
+
+    /// # Safety
+    ///
+    /// 1. `stack_segment` must point to a kernel stack we're dropping where the first page is a
+    ///    guard page.
+    /// 2. `flags` must be the page table flags returned by `protect_guard_page` when constructing
+    ///    the kernel stack.
+    unsafe fn restore_guard_page(stack_segment: &VmSegment, flags: PageTableFlags) {
+        let mut kernel_pt = KERNEL_PAGE_TABLE.get().unwrap().lock();
+        let guard_page_paddr = stack_segment.start_paddr();
+        let guard_page_vaddr = crate::vm::paddr_to_vaddr(guard_page_paddr);
+
+        // SAFETY: The safety is upheld by the caller.
+        unsafe {
+            kernel_pt
+                .map(guard_page_vaddr, guard_page_paddr, flags)
+                .unwrap()
+        }
     }
 }
 
 impl Drop for KernelStack {
     fn drop(&mut self) {
-        if self.has_guard_page() {
-            Self::protect_guard_page(&self.segment, self.old_guard_page_flag.unwrap());
+        if let Some(guard_page_flag) = self.old_guard_page_flag {
+            // SAFETY: The safety conditions of `restore_guard_page` are met.
+            unsafe {
+                Self::restore_guard_page(&self.segment, guard_page_flag);
+            }
         }
     }
 }
@@ -139,7 +170,7 @@ impl Task {
         self.task_inner.lock_irq_disabled()
     }
 
-    pub(crate) fn ctx(&self) -> &UnsafeCell<TaskContext> {
+    pub(super) fn ctx(&self) -> &UnsafeCell<TaskContext> {
         &self.ctx
     }
 
@@ -175,8 +206,19 @@ impl Task {
         }
     }
 
-    pub fn exit(&self) -> ! {
+    /// Exits the current task.
+    ///
+    /// The task `self` must be the task that is currently running.
+    ///
+    /// **NOTE:** If there is anything left on the stack, it will be forgotten. This behavior may
+    /// lead to resource leakage.
+    fn exit(self: Arc<Self>) -> ! {
         self.inner_exclusive_access().task_status = TaskStatus::Exited;
+
+        // `current_task()` still holds a strong reference, so nothing is destroyed at this point,
+        // neither is the kernel stack.
+        drop(self);
+
         schedule();
         unreachable!()
     }
