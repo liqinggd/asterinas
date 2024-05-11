@@ -2,7 +2,7 @@
 
 //! Posix thread implementation
 
-use core::sync::atomic::{AtomicU32, Ordering};
+use core::sync::atomic::{AtomicU32, AtomicU8, Ordering};
 
 use aster_frame::task::Task;
 
@@ -31,7 +31,7 @@ pub struct Thread {
     data: Box<dyn Send + Sync + Any>,
 
     // mutable part
-    status: Mutex<ThreadStatus>,
+    status: AtomicU8,
 }
 
 impl Thread {
@@ -46,7 +46,7 @@ impl Thread {
             tid,
             task,
             data: Box::new(data),
-            status: Mutex::new(status),
+            status: AtomicU8::new(status as u8),
         }
     }
 
@@ -67,23 +67,34 @@ impl Thread {
 
     /// Run this thread at once.
     pub fn run(&self) {
-        self.status.lock().set_running();
+        self.set_status(ThreadStatus::Running);
         self.task.run();
     }
 
     pub fn exit(&self) {
-        let mut status = self.status.lock();
-        if !status.is_exited() {
-            status.set_exited();
-        }
+        self.set_status(ThreadStatus::Exited);
     }
 
-    pub fn is_exited(&self) -> bool {
-        self.status.lock().is_exited()
+    pub fn status(&self) -> ThreadStatus {
+        ThreadStatus::try_from(self.status.load(Ordering::Acquire)).unwrap()
     }
 
-    pub fn status(&self) -> &Mutex<ThreadStatus> {
-        &self.status
+    pub fn set_status(&self, status: ThreadStatus) {
+        self.status.store(status as u8, Ordering::Release);
+    }
+
+    /// Set a `new` value if the current status is the same as the `current` value.
+    ///
+    /// Returns a boolean indicating whether the new value was written and containing the current value.
+    pub fn compare_exchange_status(&self, current: ThreadStatus, new: ThreadStatus) -> bool {
+        self.status
+            .compare_exchange(
+                current as u8,
+                new as u8,
+                Ordering::Acquire,
+                Ordering::Relaxed,
+            )
+            .is_ok()
     }
 
     pub fn yield_now() {

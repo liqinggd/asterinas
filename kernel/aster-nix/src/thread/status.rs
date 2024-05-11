@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: MPL-2.0
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+use int_to_c_enum::TryFromInt;
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, TryFromInt)]
+#[repr(u8)]
 pub enum ThreadStatus {
-    Init,
-    Running,
-    Exited,
-    Stopped,
+    Init = 0,
+    Running = 1,
+    Exited = 2,
+    Stopped = 3,
 }
 
 impl ThreadStatus {
@@ -19,19 +22,5 @@ impl ThreadStatus {
 
     pub fn is_stopped(&self) -> bool {
         *self == ThreadStatus::Stopped
-    }
-
-    pub fn set_running(&mut self) {
-        debug_assert!(!self.is_exited());
-        *self = ThreadStatus::Running;
-    }
-
-    pub fn set_stopped(&mut self) {
-        debug_assert!(!self.is_exited());
-        *self = ThreadStatus::Stopped;
-    }
-
-    pub fn set_exited(&mut self) {
-        *self = ThreadStatus::Exited;
     }
 }

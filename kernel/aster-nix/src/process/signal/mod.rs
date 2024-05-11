@@ -30,7 +30,7 @@ use super::posix_thread::{PosixThread, PosixThreadExt};
 use crate::{
     prelude::*,
     process::{do_exit_group, TermStatus},
-    thread::Thread,
+    thread::{status::ThreadStatus, Thread},
     util::{write_bytes_to_user, write_val_to_user},
 };
 
@@ -91,18 +91,12 @@ pub fn handle_pending_signal(
                 }
                 SigDefaultAction::Ign => {}
                 SigDefaultAction::Stop => {
-                    let mut status = current_thread.status().lock();
-                    if status.is_running() {
-                        status.set_stopped();
-                    }
-                    drop(status);
+                    current_thread
+                        .compare_exchange_status(ThreadStatus::Running, ThreadStatus::Stopped);
                 }
                 SigDefaultAction::Cont => {
-                    let mut status = current_thread.status().lock();
-                    if status.is_stopped() {
-                        status.set_running();
-                    }
-                    drop(status);
+                    current_thread
+                        .compare_exchange_status(ThreadStatus::Stopped, ThreadStatus::Running);
                 }
             }
         }
