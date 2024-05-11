@@ -235,7 +235,8 @@ impl ExfatInodeInner {
             return Ok((0, 0));
         }
 
-        let iterator = ExfatDentryIterator::new(self.page_cache.pages(), 0, Some(self.size))?;
+        let iterator =
+            ExfatDentryIterator::new(self.page_cache.pages().dup().unwrap(), 0, Some(self.size))?;
         let mut sub_inodes = 0;
         let mut sub_dirs = 0;
         for dentry_result in iterator {
@@ -366,7 +367,8 @@ impl ExfatInodeInner {
         let fs = self.fs();
         let cluster_size = fs.cluster_size();
 
-        let mut iter = ExfatDentryIterator::new(self.page_cache.pages(), offset, None)?;
+        let mut iter =
+            ExfatDentryIterator::new(self.page_cache.pages().dup().unwrap(), offset, None)?;
 
         let mut dir_read = 0;
         let mut current_off = offset;
@@ -809,7 +811,7 @@ impl ExfatInode {
         let inner = self.inner.upread();
 
         let dentry_iterator =
-            ExfatDentryIterator::new(inner.page_cache.pages(), 0, Some(inner.size))?;
+            ExfatDentryIterator::new(inner.page_cache.pages().dup().unwrap(), 0, Some(inner.size))?;
 
         let mut contiguous_unused = 0;
         let mut entry_id = 0;
@@ -1197,7 +1199,7 @@ impl Inode for ExfatInode {
     }
 
     fn page_cache(&self) -> Option<Vmo<Full>> {
-        Some(self.inner.read().page_cache.pages())
+        Some(self.inner.read().page_cache.pages().dup().unwrap())
     }
 
     fn read_at(&self, offset: usize, buf: &mut [u8]) -> Result<usize> {

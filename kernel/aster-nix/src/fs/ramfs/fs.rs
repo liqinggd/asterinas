@@ -443,7 +443,7 @@ impl Inode for RamInode {
             .read()
             .inner
             .as_file()
-            .map(|page_cache| page_cache.pages())
+            .map(|page_cache| page_cache.pages().dup().unwrap())
     }
 
     fn read_at(&self, offset: usize, buf: &mut [u8]) -> Result<usize> {
